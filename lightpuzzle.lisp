@@ -68,7 +68,7 @@
     (princ "Okay.  Hit these spaces:")
     (terpri)
     (loop with output = (interpret result)
-          for i below col
-          do (loop for j below row
+          for i below row
+          do (loop for j below col
                    do (format t "~a " (aref output i j)))
           (terpri))))
