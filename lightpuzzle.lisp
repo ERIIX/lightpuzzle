@@ -43,12 +43,11 @@
   (if (evaluate head)
       head
       (loop 
-        named main
         do (loop
              for path in (paths head)
              for new = (switch (car path) (cadr path) head dx dy)
              do (if (evaluate new)
-                    (return-from main new)
+                    (return-from solve new)
                     (if tail
                         (progn 
                           (rplacd tail (list new))
@@ -56,7 +55,9 @@
                         (progn
                           (rplacd work (list new))
                           (setf tail (cdr work))))))
-        do (setf head (pop work)))))
+        do (progn
+             (setf head (pop work))
+             (unless (car head) (return-from solve nil))))))
 
 (defun interpret (source)
   (loop with out = (make-array (array-dimensions (car source))
@@ -77,10 +78,15 @@
              (loop repeat row collect (loop repeat col collect (read)))))
          (result (solve (make-array (list row col)
                                     :initial-contents contents))))
-    (princ "Okay.  Hit these spaces:")
-    (terpri)
-    (loop with output = (interpret result)
-          for i below row
-          do (loop for j below col
-                   do (format t "~a " (aref output i j)))
-          (terpri))))
+    (if result
+        (progn
+          (princ "Okay.  Hit these spaces:")
+          (terpri)
+          (loop with output = (interpret result)
+                for i below row
+                do (loop for j below col
+                         do (format t "~a " (aref output i j)))
+                   (terpri)))
+        (progn
+          (format t "There is no solution to that puzzle.  Sorry.")
+          (terpri)))))
