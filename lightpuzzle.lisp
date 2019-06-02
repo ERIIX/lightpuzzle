@@ -17,6 +17,21 @@
   (every #'oddp (make-array (reduce #'* (array-dimensions (car source)))
                             :displaced-to (car source))))
 
+(defun paths (source)
+  (let* ((dimensions (array-dimensions (car source)))
+         (dx (car dimensions))
+         (dy (cadr dimensions))
+         (previous (cadr source))
+         (px (car previous))
+         (py (cadr previous)))
+    (loop
+      with result
+      for i from (or px 0) below dx
+      do (loop
+           for j from (if (eql px i) (1+ py) 0) below dy
+           do (setf result (cons (list i j) result)))
+      finally (return-from paths result))))
+
 (defun solve (state
               &optional
               (work (list (list state)))
@@ -30,20 +45,17 @@
       (loop 
         named main
         do (loop
-             for i from 0 below dx
-             do (loop
-                  for j from 0 below dy
-                  for new = (switch i j head dx dy)
-                  do (if (evaluate new)
-                         (return-from main new)
-                         (unless (find (list i j) (cdr head) :test #'equal)
-                           (if tail
-                               (progn 
-                                 (rplacd tail (list new))
-                                 (setf tail (cdr tail)))
-                               (progn
-                                 (rplacd work (list new))
-                                 (setf tail (cdr work))))))))
+             for path in (paths head)
+             for new = (switch (car path) (cadr path) head dx dy)
+             do (if (evaluate new)
+                    (return-from main new)
+                    (if tail
+                        (progn 
+                          (rplacd tail (list new))
+                          (setf tail (cdr tail)))
+                        (progn
+                          (rplacd work (list new))
+                          (setf tail (cdr work))))))
         do (setf head (pop work)))))
 
 (defun interpret (source)
