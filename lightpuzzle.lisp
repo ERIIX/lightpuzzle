@@ -90,3 +90,21 @@
         (progn
           (format t "There is no solution to that puzzle.  Sorry.")
           (terpri)))))
+
+(defun make-puzzle (state)
+  (loop
+    with dimensions = (array-dimensions state)
+    with dx = (car dimensions)
+    and dy = (cadr dimensions)
+    with result = (list (make-array dimensions) :initial-element 1)
+    for i below dx
+    do (loop
+         for j below dy
+         do (when (= (aref state i j) 1)
+              (setf result (switch i j result dx dy))))
+    finally (loop
+              with d = (apply #'* dimensions)
+              with proxy = (make-array d :displaced-to (car result))
+              for i below d
+              do (setf (aref proxy i) (if (oddp (aref proxy i)) 0 1))
+              finally (return-from make-puzzle (car result)))))
