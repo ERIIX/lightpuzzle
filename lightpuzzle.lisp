@@ -3,19 +3,22 @@
 (in-package #:lightpuzzle)
 
 (defun switch (x y source dx dy)
-  "Since we use even/odd for states, just increment to toggle."
+  "Toggle the switch located at (x y)."
   (loop 
     with state = (alexandria:copy-array (car source))
     for i in '((-1 . 0) (0 . -1) (0 . 0) (0 . 1) (1 . 0))
     for xx = (+ x (car i))
     and yy = (+ y (cdr i))
-    do (when (and (< -1 xx dx) (< -1 yy dy)) (incf (aref state xx yy)))
+    do (when (and (< -1 xx dx) (< -1 yy dy))
+         (setf (bit state xx yy)
+               (if (zerop (bit state xx yy)) 1 0)))
     finally (return (cons state (cons (list x y) (cdr source))))))
 
 (defun evaluate (source)
-  "All odd?  Done."
-  (every #'oddp (make-array (reduce #'* (array-dimensions (car source)))
-                            :displaced-to (car source))))
+  "All 1?  Done."
+  (not (some #'zerop (make-array (reduce #'* (array-dimensions (car source)))
+                                 :element-type 'bit
+                                 :displaced-to (car source)))))
 
 (defun paths (source)
   (let* ((dimensions (array-dimensions (car source)))
@@ -61,9 +64,10 @@
 
 (defun interpret (source)
   (loop with out = (make-array (array-dimensions (car source))
+                               :element-type 'bit
                                :initial-element 0)
         for move in (cdr source)
-        do (setf (aref out (car move) (cadr move)) 1)
+        do (setf (bit out (car move) (cadr move)) 1)
         finally (return out)))
 
 (defun lightpuzzle ()
@@ -77,6 +81,7 @@
              (terpri)
              (loop repeat row collect (loop repeat col collect (read)))))
          (result (solve (make-array (list row col)
+                                    :element-type 'bit
                                     :initial-contents contents))))
     (if result
         (progn
@@ -85,26 +90,25 @@
           (loop with output = (interpret result)
                 for i below row
                 do (loop for j below col
-                         do (format t "~a " (aref output i j)))
-                   (terpri)))
+                         do (format t "~a " (bit output i j)))
+                   (terpri))
+          t)
         (progn
           (format t "There is no solution to that puzzle.  Sorry.")
-          (terpri)))))
+          (terpri)
+          nil))))
 
 (defun make-puzzle (state)
   (loop
     with dimensions = (array-dimensions state)
     with dx = (car dimensions)
     and dy = (cadr dimensions)
-    with result = (list (make-array dimensions) :initial-element 1)
+    with result = (list (make-array dimensions
+                                    :element-type 'bit
+                                    :initial-element 1))
     for i below dx
     do (loop
          for j below dy
-         do (when (= (aref state i j) 1)
+         do (when (= (bit state i j) 1)
               (setf result (switch i j result dx dy))))
-    finally (loop
-              with d = (apply #'* dimensions)
-              with proxy = (make-array d :displaced-to (car result))
-              for i below d
-              do (setf (aref proxy i) (if (oddp (aref proxy i)) 0 1))
-              finally (return-from make-puzzle (car result)))))
+    finally (return (car result))))
