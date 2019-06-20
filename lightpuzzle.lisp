@@ -2,77 +2,106 @@
 
 (in-package #:lightpuzzle)
 
-(defun switch (x y source dx dy)
-  "Toggle the switch located at (x y)."
-  (loop 
-    with state = (alexandria:copy-array (car source))
-    for i in '((-1 . 0) (0 . -1) (0 . 0) (0 . 1) (1 . 0))
-    for xx = (+ x (car i))
-    and yy = (+ y (cdr i))
-    do (when (and (< -1 xx dx) (< -1 yy dy))
-         (setf (bit state xx yy)
-               (if (zerop (bit state xx yy)) 1 0)))
-    finally (return (cons state (cons (list x y) (cdr source))))))
-
-(defun evaluate (source)
+(defun check (state)
   "All 1?  Done."
-  (not (some #'zerop (make-array (reduce #'* (array-dimensions (car source)))
-                                 :element-type 'bit
-                                 :displaced-to (car source)))))
+  (not (some #'zerop state)))
 
-(defun paths (source)
-  (let* ((dimensions (array-dimensions (car source)))
-         (dx (car dimensions))
-         (dy (cadr dimensions))
-         (previous (cadr source))
-         (px (car previous))
-         (py (cadr previous)))
-    (loop
-      with result
-      for i from (or px 0) below dx
-      do (loop
-           for j from (if (eql px i) (1+ py) 0) below dy
-           do (setf result (cons (list i j) result)))
-      finally (return-from paths result))))
+(defun just-switch (x y state dx dy)
+  "Just hit switch (x x) in state from puzzle of dimensions (dx dy)."
+  (declare (optimize debug)
+           (type (integer 0 100) x y dx dy))
+  (loop
+     with output of-type (simple-bit-vector *)
+       = (alexandria:copy-array state)
+     for i in '((-1 . 0) (0 . -1) (0 . 0) (0 . 1) (1 . 0))
+     for xx of-type (integer -1 100) = (+ x (the (integer -1 1) (car i)))
+     for yy of-type (integer -1 100) = (+ y (the (integer -1 1) (cdr i)))
+     for index = (+ (* xx dy) yy)
+     do (when (and (< -1 xx dx) (< -1 yy dy))
+          (setf (bit output index)
+                (if (zerop (bit output index)) 1 0)))
+     finally (return output )))
 
-(defun solve (state
-              &optional
-              (work (list (list state)))
-              (head (car work))
-              (tail nil)
-              (dimensions (array-dimensions state))
-              (dx (car dimensions))
-              (dy (cadr dimensions)))
-  (if (evaluate head)
-      head
-      (loop 
-        do (loop
-             for path in (paths head)
-             for new = (switch (car path) (cadr path) head dx dy)
-             do (if (evaluate new)
-                    (return-from solve new)
-                    (if tail
-                        (progn 
-                          (rplacd tail (list new))
-                          (setf tail (cdr tail)))
-                        (progn
-                          (rplacd work (list new))
-                          (setf tail (cdr work))))))
-        do (progn
-             (setf head (pop work))
-             (unless (car head) (return-from solve nil))))))
+(defun make-controls (dx dy)
+  "Create array of bit vectors representing effects of switches."
+  (declare (optimize debug)
+           (type (integer 1 100) dx dy))
+  (loop
+     with d of-type (integer 1 10000) = (* dx dy)
+     with output = (make-array
+                    (list 2 d)
+                    :element-type '(simple-bit-vector *)
+                    :initial-element #*)
+     for source = (make-array
+                   d
+                   :element-type 'bit
+                   :initial-element 0)
+     for i below d
+     for (y x) = (multiple-value-list (floor i dx))
+     do
+       (setf (aref output 0 i) (just-switch x y source dx dy))
+       (setf (aref source i) 1)
+       (setf (aref output 1 i) source)
+     finally (return output)))
 
-(defun interpret (source)
-  (loop with out = (make-array (array-dimensions (car source))
-                               :element-type 'bit
-                               :initial-element 0)
-        for move in (cdr source)
-        do (setf (bit out (car move) (cadr move)) 1)
-        finally (return out)))
+(defun show-state (state dx dy)
+  (loop
+     for y below dy
+     do (loop
+           for x below dx
+           do (princ (bit state (+ (* x dy) y)))
+           finally (terpri))))
+
+(defun try (states
+            controls
+            allowed
+            &key
+              (current 0)
+              (remaining (- (array-dimension (car states) 0) current)))
+  (declare (optimize debug))
+  (cond ((and (= allowed 0) (check (car states)))
+         (or (cdr states)
+             (make-array (array-dimension (car states) 0)
+                         :element-type 'bit
+                         :initial-element 0)))
+        ((= allowed 0) nil)
+        ((> allowed remaining) nil)
+        ((try (cons (bit-xor (car states) (aref controls 0 current))
+                    (if (cdr states)
+                        (bit-xor (cdr states) (aref controls 1 current))
+                        (aref controls 1 current)))
+              controls
+              (1- allowed)
+              :current (1+ current)
+              :remaining (1- remaining)))
+        ((try states
+              controls
+              allowed
+              :current (1+ current)
+              :remaining (1- remaining)))))
+
+(defun solve (state controls)
+  (loop
+     with states = (list state)
+     with results
+     for i to (array-dimension state 0)
+     do
+       (format t "Attempting to solve with ~A switches... " i)
+       (force-output)
+       (setf results (try states controls i))
+       (if results
+           (progn (format t "SUCCESS!~%")
+                  (when (= i 0)
+                    (format t "It was already solved, ya cheeky bugger!~%"))
+                  (force-output)
+                  (return results))
+           (format t "Failed.~%"))
+     finally (return nil)))
 
 (defun lightpuzzle ()
   (let* ((col (progn (princ "How many columns? ") (force-output) (read)))
          (row (progn (princ "How many rows?    ") (force-output) (read)))
+         (size (* row col))
          (contents
            (progn
              (princ "Provide the state of the board.")
@@ -80,35 +109,31 @@
              (princ "1 is the good state.  0 is the bad one.")
              (terpri)
              (loop repeat row collect (loop repeat col collect (read)))))
-         (result (solve (make-array (list row col)
-                                    :element-type 'bit
-                                    :initial-contents contents))))
+         (template (make-array (list row col)
+                               :element-type 'bit
+                               :initial-contents contents))
+         (interface (make-array size
+                                :element-type 'bit
+                                :displaced-to template))
+         (result (solve interface (make-controls col row))))
     (if result
         (progn
           (princ "Okay.  Hit these spaces:")
           (terpri)
-          (loop with output = (interpret result)
-                for i below row
-                do (loop for j below col
-                         do (format t "~a " (bit output i j)))
-                   (terpri))
+          (show-state result col row)
           t)
         (progn
           (format t "There is no solution to that puzzle.  Sorry.")
           (terpri)
           nil))))
 
-(defun make-puzzle (state)
+(defun make-puzzle (state dx dy)
   (loop
-    with dimensions = (array-dimensions state)
-    with dx = (car dimensions)
-    and dy = (cadr dimensions)
-    with result = (list (make-array dimensions
-                                    :element-type 'bit
-                                    :initial-element 1))
-    for i below dx
-    do (loop
-         for j below dy
-         do (when (= (bit state i j) 1)
-              (setf result (switch i j result dx dy))))
-    finally (return (car result))))
+     with size = (* dx dy)
+     with controls = (make-controls dx dy)
+     with result = state
+     for i below size
+     if (= 1 (bit state i)) do (setf result (bit-xor result
+                                                     (aref controls 0 i)))
+     finally (progn (show-state result dx dy)
+                    (return result))))
