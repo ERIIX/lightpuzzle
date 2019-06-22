@@ -2,12 +2,39 @@
 
 (in-package #:lightpuzzle)
 
-(defun check (state)
-  "All 1?  Done."
-  (not (some #'zerop state)))
+(defun flow (states dx dy controls)
+  (loop with barrier = (* (1- dy) dx)
+     for i from 0 below (* dx dy)
+     do (cond ((not (zerop (bit (car states) i))))
+              ((< i barrier)
+               (setf states (cons (bit-xor
+                                   (car states)
+                                   (aref controls 0 (+ i dx)))
+                                  (bit-xor
+                                   (cdr states)
+                                   (aref controls 1 (+ i dx))))))
+              (t (return nil)))
+     finally (return (cdr states))))
+
+(defun flow-solve (states dx dy controls &optional (current 0))
+  (if (= current dx)
+      (flow states dx dy controls)
+      (let* ((zero (flow-solve states dx dy controls (1+ current)))
+             (one (flow-solve (cons (bit-xor (car states)
+                                             (aref controls 0 current))
+                                    (bit-xor (cdr states)
+                                             (aref controls 1 current)))
+                              dx
+                              dy
+                              controls
+                              (1+ current))))
+        (cond ((null zero) one)
+              ((null one) zero)
+              ((< (count 1 zero) (count 1 one)) zero)
+              (t one)))))
 
 (defun just-switch (x y state dx dy)
-  "Just hit switch (x x) in state from puzzle of dimensions (dx dy)."
+  "Just hit switch (x y) in state from puzzle of dimensions (dx dy)."
   (declare (optimize debug)
            (type (integer 0 100) x y dx dy))
   (loop
@@ -20,7 +47,7 @@
      do (when (and (< -1 xx dx) (< -1 yy dy))
           (setf (bit output index)
                 (if (zerop (bit output index)) 1 0)))
-     finally (return output )))
+     finally (return output)))
 
 (defun make-controls (dx dy)
   "Create array of bit vectors representing effects of switches."
@@ -36,10 +63,13 @@
                    d
                    :element-type 'bit
                    :initial-element 0)
+     for interface = (make-array (list dx dy)
+                                 :element-type 'bit
+                                 :displaced-to source)
      for i below d
      for (y x) = (multiple-value-list (floor i dx))
      do
-       (setf (aref output 0 i) (just-switch x y source dx dy))
+       (setf (aref output 0 i) (just-switch y x source dy dx))
        (setf (aref source i) 1)
        (setf (aref output 1 i) source)
      finally (return output)))
@@ -49,56 +79,11 @@
      for y below dy
      do (loop
            for x below dx
-           do (princ (bit state (+ (* x dy) y)))
+           do (princ (bit state (+ (* y dx) x)))
            finally (terpri))))
 
-(defun try (states
-            controls
-            allowed
-            &key
-              (current 0)
-              (remaining (- (array-dimension (car states) 0) current)))
-  (declare (optimize debug))
-  (cond ((and (= allowed 0) (check (car states)))
-         (or (cdr states)
-             (make-array (array-dimension (car states) 0)
-                         :element-type 'bit
-                         :initial-element 0)))
-        ((= allowed 0) nil)
-        ((> allowed remaining) nil)
-        ((try (cons (bit-xor (car states) (aref controls 0 current))
-                    (if (cdr states)
-                        (bit-xor (cdr states) (aref controls 1 current))
-                        (aref controls 1 current)))
-              controls
-              (1- allowed)
-              :current (1+ current)
-              :remaining (1- remaining)))
-        ((try states
-              controls
-              allowed
-              :current (1+ current)
-              :remaining (1- remaining)))))
-
-(defun solve (state controls)
-  (loop
-     with states = (list state)
-     with results
-     for i to (array-dimension state 0)
-     do
-       (format t "Attempting to solve with ~A switches... " i)
-       (force-output)
-       (setf results (try states controls i))
-       (if results
-           (progn (format t "SUCCESS!~%")
-                  (when (= i 0)
-                    (format t "It was already solved, ya cheeky bugger!~%"))
-                  (force-output)
-                  (return results))
-           (format t "Failed.~%"))
-     finally (return nil)))
-
 (defun lightpuzzle ()
+  (declare (optimize debug))
   (let* ((col (progn (princ "How many columns? ") (force-output) (read)))
          (row (progn (princ "How many rows?    ") (force-output) (read)))
          (size (* row col))
@@ -108,14 +93,17 @@
              (terpri)
              (princ "1 is the good state.  0 is the bad one.")
              (terpri)
-             (loop repeat row collect (loop repeat col collect (read)))))
-         (template (make-array (list row col)
-                               :element-type 'bit
-                               :initial-contents contents))
-         (interface (make-array size
-                                :element-type 'bit
-                                :displaced-to template))
-         (result (solve interface (make-controls col row))))
+             (loop repeat size collect (read))))
+         (state (make-array size
+                            :element-type 'bit
+                            :initial-contents contents))
+         (result (flow-solve (cons state
+                                   (make-array size
+                                               :element-type 'bit
+                                               :initial-element 0))
+                             col
+                             row
+                             (make-controls col row))))
     (if result
         (progn
           (princ "Okay.  Hit these spaces:")
@@ -131,7 +119,7 @@
   (loop
      with size = (* dx dy)
      with controls = (make-controls dx dy)
-     with result = state
+     with result = (make-array size :element-type 'bit :initial-element 0)
      for i below size
      if (= 1 (bit state i)) do (setf result (bit-xor result
                                                      (aref controls 0 i)))
