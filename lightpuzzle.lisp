@@ -14,23 +14,30 @@
                                    (cdr states)
                                    (aref controls 1 (+ i dx))))))
               (t (return nil)))
-     finally (return (cdr states))))
+     finally (let* ((solution (cdr states))
+                    (steps (count 1 solution)))
+               (format t
+                       "Located solution that requires ~A moves:~%"
+                       steps)
+               (show-state solution dx dy)
+               (terpri)
+               (return (cons solution steps)))))
 
 (defun flow-solve (states dx dy controls &optional (current 0))
   (if (= current dx)
       (flow states dx dy controls)
-      (let* ((zero (flow-solve states dx dy controls (1+ current)))
-             (one (flow-solve (cons (bit-xor (car states)
-                                             (aref controls 0 current))
-                                    (bit-xor (cdr states)
-                                             (aref controls 1 current)))
-                              dx
-                              dy
-                              controls
-                              (1+ current))))
+      (let ((zero (flow-solve states dx dy controls (1+ current)))
+            (one (flow-solve (cons (bit-xor (car states)
+                                            (aref controls 0 current))
+                                   (bit-xor (cdr states)
+                                            (aref controls 1 current)))
+                             dx
+                             dy
+                             controls
+                             (1+ current))))
         (cond ((null zero) one)
               ((null one) zero)
-              ((< (count 1 zero) (count 1 one)) zero)
+              ((< (cdr zero) (cdr one)) zero)
               (t one)))))
 
 (defun just-switch (x y state dx dy)
@@ -106,9 +113,9 @@
                              (make-controls col row))))
     (if result
         (progn
-          (princ "Okay.  Hit these spaces:")
+          (princ "I would recommend hitting the following spaces:")
           (terpri)
-          (show-state result col row)
+          (show-state (car result) col row)
           t)
         (progn
           (format t "There is no solution to that puzzle.  Sorry.")
